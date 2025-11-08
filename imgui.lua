@@ -10,6 +10,24 @@ local function drawModMenu()
     if checked then
 		config.ArtificerIndicator = value
 	end
+	
+	-- HUD/icon scale slider
+	rom.ImGui.Separator()
+	local hudScale = config.ArtificerHUDScale
+	local newHud, changed = rom.ImGui.SliderFloat("Tray Icon HUDScale", hudScale, 0.05, 0.6)
+	if changed then
+		config.ArtificerHUDScale = newHud
+	end
+
+	rom.ImGui.Separator()
+	if rom.ImGui.Button("Apply Now") then
+		-- Trigger update immediately (exposed by the mod)
+		if purpIe_ArtificerIndicator and purpIe_ArtificerIndicator.UpdateNow then
+			purpIe_ArtificerIndicator.UpdateNow()
+		else
+			print("ArtificerIndicator: UpdateNow not available")
+		end
+	end
 end
 
 

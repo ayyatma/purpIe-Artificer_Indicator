@@ -1,165 +1,143 @@
----@meta _
+﻿---@meta _
 ---@diagnostic disable: lowercase-global
 
----@meta _
----@diagnostic disable: lowercase-global
+-- Artificer Indicator Mod
+-- Displays remaining uses of Artificer (MetaToRunMetaUpgrade) in the trait tray
 
--- Initialize mod data
-local function initializeModData()
-	print("ArtificerIndicator: Initializing mod data")
-	-- Add the expired text for MetaToRunMetaUpgrade
-	if not TextData.MetaToRunMetaUpgrade_Expired then
-		TextData.MetaToRunMetaUpgrade_Expired = "Artificer Depleted"
-		print("ArtificerIndicator: Added expired text")
-	end
+local function UpdateArtificerIndicator()
+    if not config.ArtificerIndicator then
+        return
+    end
 
-	-- Create the Artificer indicator trait similar to StorePendingDeliveryItem
-	if not TraitData.MetaToRunIndicator then
-		TraitData.MetaToRunIndicator = {
-			Frame = "Shop",
-			PriorityDisplay = true,
-			Icon = "Trait_StorePendingDeliveryItem", -- Using the same icon as delivery system
-			RemainingUses = 3, -- Will be set dynamically
-			UsesAsEncounters = false, -- Don't decrement automatically
-			HideInRunHistory = true,
-			StatLines = {
-				"DeliveryTimeRemainingDisplay1", -- Reuse the delivery stat line
-			},
-			SpeakerNames = { "Hermes" },
-			SetupFunction = {
-				Name = "LoadResourcesForPendingDeliveryItem", -- Reuse the setup function
-				Args = {},
-			},
-		}
-		print("ArtificerIndicator: Created MetaToRunIndicator trait")
-	end
+    local trait = GetHeroTrait("MetaToRunMetaUpgrade")
+    -- Helper: apply scale and icon settings to both the hero trait and raw TraitData
+    local function applyScaleAndIcon(tr, scale)
+        tr.Icon = "CardArt_18"
+        tr.HUDScale = scale
+        tr.IconScale = scale
+        tr.PinIconScale = scale
+        tr.PinIconFrameScale = scale
+        tr.HighlightAnimScale = scale
+        local raw = TraitData and TraitData[tr.Name]
+        if raw then
+            raw.Icon = tr.Icon
+            raw.HUDScale = scale
+            raw.IconScale = scale
+            raw.PinIconScale = scale
+            raw.PinIconFrameScale = scale
+            raw.HighlightAnimScale = scale
+        end
+    end
+
+    -- Helper: clear any changes we made so the trait won't reappear as an empty entry on load
+    local function clearUIFields(tr)
+        tr.ShowInHUD = false
+        tr.Hidden = true
+        tr.Icon = nil
+        tr.AnchorId = nil
+        tr.HUDScale = nil
+        tr.IconScale = nil
+        tr.PinIconScale = nil
+        tr.PinIconFrameScale = nil
+        tr.HighlightAnimScale = nil
+        local raw = TraitData and TraitData[tr.Name]
+        if raw then
+            raw.Icon = nil
+            raw.HUDScale = nil
+            raw.IconScale = nil
+            raw.PinIconScale = nil
+            raw.PinIconFrameScale = nil
+            raw.HighlightAnimScale = nil
+        end
+    end
+
+    if not trait then
+        return
+    end
+
+    local uses = trait.MetaConversionUses or 0
+    trait.RemainingUses = uses
+
+    local scale = tonumber(config.ArtificerHUDScale) or 0.14
+
+    if uses > 0 then
+        trait.UsesAsEncounters = false
+        trait.Hidden = false
+        trait.ShowInHUD = true
+        applyScaleAndIcon(trait, scale)
+
+        if trait.AnchorId then
+            -- update existing UI immediately
+            SetAnimation({ Name = trait.Icon, DestinationId = trait.AnchorId })
+            SetScale({ Id = trait.AnchorId, Fraction = scale })
+            UpdateTraitNumber(trait)
+
+            -- update the trait component table so future hovers/pins use our scale
+            local tc = (HUDScreen and HUDScreen.SlottedTraitComponents and HUDScreen.SlottedTraitComponents[trait.AnchorId])
+                    or (HUDScreen and HUDScreen.ActiveTraitComponents and HUDScreen.ActiveTraitComponents[trait.AnchorId])
+            if tc then
+                tc.IconScale = scale
+                tc.PinIconScale = scale
+                tc.PinIconFrameScale = scale
+            end
+
+            -- update any pinned hover icons that exist
+            local tray = ActiveScreens and ActiveScreens.TraitTrayScreen
+            if tray and tray.Pins then
+                for _, pin in ipairs(tray.Pins) do
+                    if pin and pin.Button == tc and pin.Components then
+                        if pin.Components.Icon then
+                            SetScale({ Id = pin.Components.Icon.Id, Fraction = scale })
+                        end
+                        if pin.Components.Frame then
+                            SetScale({ Id = pin.Components.Frame.Id, Fraction = scale })
+                        end
+                    end
+                end
+            end
+        end
+
+        TraitUIUpdateText(trait)
+    else
+        -- no uses; remove UI and clear fields so it doesn't reappear empty
+        TraitUIRemove(trait)
+        clearUIFields(trait)
+    end
+
+    UpdateHeroTraitDictionary()
 end
 
--- Call initialization
-initializeModData()
-
--- Function to update the indicator trait
-local function updateArtificerIndicator()
-	print("ArtificerIndicator: updateArtificerIndicator called")
-	if not config.ArtificerIndicator then
-		print("ArtificerIndicator: Indicator disabled in config")
-		return
-	end
-
-	local hero = CurrentRun and CurrentRun.Hero
-	if not hero then
-		print("ArtificerIndicator: No hero found")
-		return
-	end
-
-	print("ArtificerIndicator: Checking for MetaToRunMetaUpgrade")
-	-- Check if player has MetaToRunMetaUpgrade
-	if HeroHasTrait("MetaToRunMetaUpgrade") then
-		local metaTrait = GetHeroTrait("MetaToRunMetaUpgrade")
-		local remainingUses = metaTrait.MetaConversionUses or 0
-		print("ArtificerIndicator: Found MetaToRunMetaUpgrade with " .. remainingUses .. " uses")
-
-		-- Only show indicator if there are uses remaining
-		if remainingUses > 0 then
-			print("ArtificerIndicator: Creating indicator trait")
-			local indicatorTrait = DeepCopyTable(TraitData.MetaToRunIndicator)
-			indicatorTrait.RemainingUses = remainingUses
-			indicatorTrait.ItemDisplayName = "Artificer Uses"
-			indicatorTrait.ShopItemName = "MetaToRunUpgrade"
-
-			AddTraitToHero({ TraitData = indicatorTrait, SkipUIUpdate = false })
-			print("ArtificerIndicator: Added indicator trait to hero")
-		else
-			print("ArtificerIndicator: No uses remaining, removing indicator")
-			-- Remove existing indicator
-			if hero.TraitDictionary and hero.TraitDictionary.MetaToRunIndicator then
-				for i, trait in pairs(hero.TraitDictionary.MetaToRunIndicator) do
-					RemoveTraitData(hero, trait, { SkipExpire = true })
-				end
-			end
-		end
-	else
-		print("ArtificerIndicator: No MetaToRunMetaUpgrade found")
-	end
-end
-
--- Hook into SetupMetaUpgradeData to add ZeroBonusTrayText
-modutil.mod.Path.Wrap("SetupMetaUpgradeData", function(base)
-	print("ArtificerIndicator: SetupMetaUpgradeData hook called")
-	base()
-
-	-- Add ZeroBonusTrayText to MetaToRunMetaUpgrade
-	if TraitData.MetaToRunMetaUpgrade and config.ArtificerIndicator then
-		TraitData.MetaToRunMetaUpgrade.ZeroBonusTrayText = "MetaToRunMetaUpgrade_Expired"
-		print("ArtificerIndicator: Added ZeroBonusTrayText to MetaToRunMetaUpgrade")
-	end
-end)
-
--- Hook into GetHeroTrait to update tray text when uses change
-modutil.mod.Path.Wrap("GetHeroTrait", function(base, traitName)
-	local trait = base(traitName)
-	if trait and trait.Name == "MetaToRunMetaUpgrade" and config.ArtificerIndicator then
-		if trait.MetaConversionUses and trait.MetaConversionUses <= 0 and trait.ZeroBonusTrayText then
-			trait.CustomTrayText = trait.ZeroBonusTrayText
-			print("ArtificerIndicator: Updated tray text for depleted MetaToRunMetaUpgrade")
-		end
-	end
-	return trait
-end)
-
--- Hook into the gift logic where MetaConversionUses is consumed
-modutil.mod.Path.Wrap("UseGift", function(base, giftData)
-	print("ArtificerIndicator: UseGift hook called")
-	local result = base(giftData)
-
-	-- Update indicator after use
-	updateArtificerIndicator()
-
-	return result
-end)
-
--- Hook into ConvertMetaRewardPresentation which is called during conversion
-modutil.mod.Path.Wrap("ConvertMetaRewardPresentation", function(base, target)
-	print("ArtificerIndicator: ConvertMetaRewardPresentation hook called")
-	local result = base(target)
-
-	-- Update indicator after conversion
-	updateArtificerIndicator()
-
-	return result
-end)
-
--- Hook into EquipMetaUpgrades to set up the indicator initially
+-- Hook EquipMetaUpgrades to set up indicator when equipping
 modutil.mod.Path.Wrap("EquipMetaUpgrades", function(base, hero, args)
-	print("ArtificerIndicator: EquipMetaUpgrades hook called")
-	local result = base(hero, args)
-
-	-- Update indicator after equipping meta upgrades
-	updateArtificerIndicator()
-
-	return result
+    base(hero, args)
+    UpdateArtificerIndicator()
 end)
 
--- Hook into StartNewRun to ensure indicator is set up at run start
-modutil.mod.Path.Wrap("StartNewRun", function(base, args)
-	print("ArtificerIndicator: StartNewRun hook called")
-	local result = base(args)
-
-	-- Update indicator at the start of a new run
-	updateArtificerIndicator()
-
-	return result
+-- Hook ConvertMetaRewardPresentation to update after gift usage
+modutil.mod.Path.Wrap("ConvertMetaRewardPresentation", function(base, sourceDrop)
+    base(sourceDrop)
+    UpdateArtificerIndicator()
 end)
 
--- Hook into the specific function that decrements MetaConversionUses
-modutil.mod.Path.Wrap("IncrementTableValue", function(base, table, key, amount)
-	local result = base(table, key, amount or 1)
-
-	-- If this is incrementing MetaConversionUses, update the indicator
-	if key == "MetaConversionUses" then
-		print("ArtificerIndicator: MetaConversionUses incremented, updating indicator")
-		updateArtificerIndicator()
-	end
-
-	return result
+-- Hook StartNewRun to ensure setup at run start
+modutil.mod.Path.Wrap("StartNewRun", function(base, prevRun, args)
+    local result = base(prevRun, args)
+    UpdateArtificerIndicator()
+    return result
 end)
+
+-- Hook ShowTraitUI to update before showing
+modutil.mod.Path.Wrap("ShowTraitUI", function(base, args)
+    UpdateArtificerIndicator()
+    return base(args)
+end)
+
+-- Hook IncrementTableValue to catch MetaConversionUses changes
+modutil.mod.Path.Wrap("IncrementTableValue", function(base, tableArg, key, amount)
+    base(tableArg, key, amount)
+    if key == "MetaConversionUses" then
+        UpdateArtificerIndicator()
+    end
+end)
+
+print("ArtificerIndicator: Mod loaded successfully")
