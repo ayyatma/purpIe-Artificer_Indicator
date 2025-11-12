@@ -1,7 +1,11 @@
 *.zip
-packages/
-ThunderstoreCLI/
-build/
+*.7z
+
 src/manifest.json
 src/LICENSE
 src/icon.png
+
+packages/
+ThunderstoreCLI/
+build/
+R2M/
